@@ -1,15 +1,26 @@
 
-import asyncore, asynchat
-import os, socket, string, sys
-import StringIO
-import logging
-from bigsignal import Eventable
 
 
-class HTTPSender(asynchat.async_chat,Eventable):
-    """
-    receives data from collector, sends again
-    """
+
+class SuperHandler(wsgiref.handler.BaseHandler):
+    wsgi_multithread = False
+    wsgi_multiprocess = True
+    wsgi_run_once = True
+
+    def __init__(self, application, server):
+        Super(SuperHandler,self).__init__(application)
+        self.server = server
+
+    def add_cgi_vars(self):
+        self.environ.update({
+            'create_collector':self.server.manager.create_collector,
+            'get_or_create_collector':self.server.manager.create_collector,
+            'get_data_generator':self.server.manager.get_collector_generator
+        })
+
+
+
+class HTTPHandler(asynchat.async_chat):
 
     def __init__(self, server, socket, addr):
         # respect the rents
@@ -27,31 +38,12 @@ class HTTPSender(asynchat.async_chat,Eventable):
         self.data = ""
 
 
-    def handle_consumer_data(self,data):
-        """
-        the consumer we've registered with has new data for us
-        """
-
-        # push the data out
-        self.push(data)
-
     def collect_incoming_data(self, data):
         log.debug('Consumer: collecting incoming data')
         self.data = self.data + data
         if len(self.data) > 16384:
             # limit the header size to prevent attacks
             self.handle_close()
-
-    def get_port_from_path(self, path):
-        """
-        given a path returns the consumer
-        """
-
-        # strip the leading slash if it's there
-        if path.startswith('/'):
-            path = path[1:]
-
-        return int(path)
 
     def found_terminator(self):
         """
@@ -102,28 +94,4 @@ class HTTPSender(asynchat.async_chat,Eventable):
         # close our connection
         self.close()
 
-
-class HTTPServer(asyncore.dispatcher):
-
-    def __init__(self, port, manager):
-        # straitup listen for connections
-        asyncore.dispatcher.__init__(self)
-
-        self.manager = manager
-        self.port = port
-        self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.bind(("", port))
-        self.listen(5)
-
-    def handle_accept(self):
-        log.info('Server: Handling accept')
-
-        # accept the connection
-        conn, addr = self.accept()
-
-        # setup the sender
-        sender = HTTPSender(self, conn, addr, consumer)
-
-    def get_collector(self, port):
-        return self.manager.collectors.get(port,None)
 
