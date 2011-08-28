@@ -1,5 +1,7 @@
-from udp_collector import collector
+from udp_collector import UDPCollector
 from http_server import HTTPServer
+import logging
+log = logging.getLogger(__name__)
 
 ## we listen on UDP ports for incoming data
 # and than pipe that data out via HTTP streams
@@ -18,7 +20,8 @@ class Manager(object):
         }
 
         # the http server waiting for clients to stream to
-        self.http_server = HTTPServer(application, http_port, base_env)
+        self.http_server = HTTPServer(application, http_port, config=base_env, manager=self)
+
 
     def get_or_create_collector(self,port):
         """

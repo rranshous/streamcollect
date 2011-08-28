@@ -1,4 +1,4 @@
-from async import SCGIServer
+from async import SCGIServer, SCGIConnection
 from http_handler import HTTPHandler
 
 """
@@ -9,6 +9,15 @@ other data streams
 
 
 class HTTPServer(SCGIServer):
+    def __init__(self,*args,**kwargs):
+        # associate our manager
+        self.manager = kwargs.get('manager')
+        del kwargs['manager']
+
+        # respect ur rents
+        SCGIServer.__init__(self,*args,**kwargs)
+
+
     def handle_accept(self):
         """asyncore interface"""
         try:
@@ -20,5 +29,5 @@ class HTTPServer(SCGIServer):
         else:
             if ret is not None:
                 conn, addr = ret
-                HTTPHandler(self, conn, addr, **self.conf)
+                handler = SCGIConnection(self, conn, addr, **self.conf)
 
