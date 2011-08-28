@@ -12,31 +12,24 @@ class HTTPHandler(SCGIConnection):
         # where will we get our data ?
         self.collector = None
 
-
-    ## WSGI BaseHandler
-    def add_cgi_vars(self):
+        # update the environ to include our helper methods
         self.environ.update({
-            'create_collector':self.handler.create_collector,
-            'get_or_create_collector':self.handle.create_collector,
-            'hook_into_udp':self.handler
+            'create_udp_collector':self.server.manager.create_udp_collector,
+            'feed_from_udp':self.feed_from_udp
         })
 
-    def handle_read(self):
-        # let our rent handle it
-        Super(HTTPHandler,self).handle_read()
 
-        # if we have run than lets see if we need to hook
-        # into the UDP stream
-        if self.state == SCGIConnection.REQ and self.upd_collector_port:
-            if not self.collector:
-                # grab our manager
-                man = self.server.manager
+    def feed_from_udp(self,port):
+        """
+        once the WSGI app finished continue sending data to the client
+        from a udp collector
+        """
 
-                # get the collector
-                self.collector = man.get_or_create_collector(self.udp_port)
+        # get the collector
+        self.collector = man.get_or_create_collector(port)
 
-                # we want all the data the collector's got
-                self.collector.on('receive',self.handle_collector_data)
+        # we want all the data the collector's got
+        self.collector.on('receive',self.handle_collector_data)
 
     def handle_collector_data(self, data):
         """
@@ -45,6 +38,12 @@ class HTTPHandler(SCGIConnection):
         self.outbuff += data
 
     def handle_close(self):
+        # call our rent which will close the connection
+        Super(HTTPHandler,self).handle_close()
+
+        self.clean_up()
+
+    def clean_up(self):
         """
         unregisters from the consumer and closees the connection
         """
@@ -52,5 +51,10 @@ class HTTPHandler(SCGIConnection):
         # unregister ourself from collector
         self.collector.un('receive',self.push)
 
-        # call our rent which will close the connection
-        Super(HTTPHandler,self).handle_close()
+    def writable(self):
+        # if we are on a collector but don't have anything to go
+        # out than return false. This way the SCGIConnector won't
+        # think we are done and close the socket
+        if self.collector and not self.outbuff:
+            return False
+        return Super(HTTPHandler,self).writable()
