@@ -1,4 +1,3 @@
-from bigsignal import Eventable
 from udp_collector import collector
 from http_server import HTTPServer
 
@@ -8,8 +7,8 @@ from http_server import HTTPServer
 #  to over HTTP
 
 
-class Manager(Eventable):
-    def __init__(self,http_port):
+class Manager(object):
+    def __init__(self,http_port,application):
         # map of UDP collectors
         self.collectors = {}
 
