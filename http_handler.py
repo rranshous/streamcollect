@@ -1,24 +1,16 @@
+from async import SCGIConnection
 
-
-class HTTPHandler(asynchat.async_chat,wsgiref.handler.BaseHandler):
+class HTTPHandler(SCGIConnection):
     wsgi_multithread = False
     wsgi_multiprocess = True
     wsgi_run_once = True
 
     def __init__(self, server, socket, addr, application):
         # respect the rents
-        asynchat.async_chat.__init__(self,socket)
-        wsgiref.handler.BaseHandler.__init__(self,application)
+        Super(HTTPHandler,self).__init__(server, socket, add)
 
-        # keep our datas
-        self.server = server
-        self.socket = socket
-        self.addr = addr
+        # where will we get our data ?
         self.collector = None
-
-        self.set_terminator("\r\n\r\n")
-        self.header = None
-        self.data = ""
 
 
     ## WSGI BaseHandler
@@ -29,36 +21,28 @@ class HTTPHandler(asynchat.async_chat,wsgiref.handler.BaseHandler):
             'hook_into_udp':self.handler
         })
 
+    def handle_read(self):
+        # let our rent handle it
+        Super(HTTPHandler,self).handle_read()
 
-    def get_stdin(self):
-        return None
-
-    def _write(self,data):
-        self.push(data)
-
-    def _flush(self):
-        pass
-
-
-    ## async_chat methods
-    def collect_incoming_data(self, data):
-        # add the data to our buffer
-        self.data += data
-
-    def found_terminator(self):
-        """
-        Waits for header and than registers with consumer
-        """
-        if not self.header:
-            # run the handler
-            self.run(self.application)
-
-            # if our flag says so, we want to hook into a collector
-            if self.udp_port and not self.collector:
+        # if we have run than lets see if we need to hook
+        # into the UDP stream
+        if self.state == SCGIConnection.REQ and self.upd_collector_port:
+            if not self.collector:
+                # grab our manager
                 man = self.server.manager
+
+                # get the collector
                 self.collector = man.get_or_create_collector(self.udp_port)
+
                 # we want all the data the collector's got
-                self.collector.on('receive',self.push)
+                self.collector.on('receive',self.handle_collector_data)
+
+    def handle_collector_data(self, data):
+        """
+        add the data to our write buffer
+        """
+        self.outbuff += data
 
     def handle_close(self):
         """
@@ -68,5 +52,5 @@ class HTTPHandler(asynchat.async_chat,wsgiref.handler.BaseHandler):
         # unregister ourself from collector
         self.collector.un('receive',self.push)
 
-        # close our connection
-        self.close()
+        # call our rent which will close the connection
+        Super(HTTPHandler,self).handle_close()

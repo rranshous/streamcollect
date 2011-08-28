@@ -1,4 +1,6 @@
 from bigsignal import Eventable
+from udp_collector import collector
+from http_server import HTTPServer
 
 ## we listen on UDP ports for incoming data
 # and than pipe that data out via HTTP streams
@@ -11,8 +13,13 @@ class Manager(Eventable):
         # map of UDP collectors
         self.collectors = {}
 
+        # some base env variables for accessing our helpers
+        base_env = {
+            'create_collector': self.create_collector
+        }
+
         # the http server waiting for clients to stream to
-        self.http_server = HTTPServer(http_port,self)
+        self.http_server = HTTPServer(application, http_port, base_env)
 
     def get_or_create_collector(self,port):
         """
@@ -29,7 +36,7 @@ class Manager(Eventable):
         """
         creates a collector
         """
-        collector = Collector(port)
+        collector = UDPCollector(port)
         self.collectors[port] = collector
         return collector
 

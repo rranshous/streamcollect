@@ -11,7 +11,7 @@ log = logging
 READ_SIZE = 1024
 
 
-class Collector(asyncore.dispatcher,Eventable):
+class UDPCollector(asyncore.dispatcher,Eventable):
 
     def __init__(self,port):
         asyncore.dispatcher.__init__(self)
