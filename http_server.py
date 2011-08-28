@@ -29,5 +29,5 @@ class HTTPServer(SCGIServer):
         else:
             if ret is not None:
                 conn, addr = ret
-                handler = SCGIConnection(self, conn, addr, **self.conf)
+                handler = HTTPHandler(self, conn, addr, **self.conf)
 

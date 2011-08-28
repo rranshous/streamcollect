@@ -1,7 +1,11 @@
 from async import SCGIConnection
 import logging
 import mimetools
+import StringIO
+
 log = logging.getLogger(__name__)
+
+HTTP_TERMINATOR = "\r\n\r\n"
 
 class HTTPHandler(SCGIConnection):
     wsgi_multithread = False
@@ -51,7 +55,8 @@ class HTTPHandler(SCGIConnection):
         """
 
         # unregister ourself from collector
-        self.collector.un('receive',self.push)
+        if self.collector:
+            self.collector.un('receive',self.push)
 
     def writable(self):
         # if we are on a collector but don't have anything to go
@@ -69,71 +74,84 @@ class HTTPHandler(SCGIConnection):
     def handle_read(self):
         """C{asyncore} interface"""
 
+        log.debug('HTTPHandler: handling read')
+
         # if we haven't gotten all the header's data yet
         if self.state == SCGIConnection.NEW:
+            log.debug('HTTPHandler: NEW')
             # we are going to read until we get to the terminator.
             # when we get to the terminator we know we've read the entire header
             back_buff = ''
-            while True:
-                # if we've received to much shut down
-                if len(self.inbuff) > self.maxrequestsize:
-                    self.close()
-                    return
 
-                # get a character
-                c = self.recv(1)
+            # if we've received to much shut down
+            if len(self.inbuff) > self.maxrequestsize:
+                log.warning('HTTPHandler: Inbuff too big')
+                self.close()
+                return
 
-                # if we didn't get any data we're done for now
-                if c is None:
-                    break
+            # get a character
+            data = self.recv(1)
 
-                # we got data, add it to our in buffer
-                self.inbuff += c
+            # if we didn't get any data we're done for now
+            if data is None:
+                log.debug('HTTPHandler: no data')
+                return
 
-                # see if we've hit the terminator
-                if self.inbuff.endswith(HTTP_TERMINATOR):
+            # we got data, add it to our in buffer
+            self.inbuff += data
 
-                    # lose the terminator
-                    self.inbuff = self.inbuff[:-4]
+            # see if we've hit the terminator
+            if self.inbuff.endswith(HTTP_TERMINATOR):
 
-                    # update our state to know we just got the headers
-                    self.state = SCGIConnection.HEADER
+                log.debug('HTTPHandler: Found terminator')
+
+                # lose the terminator
+                self.inbuff = self.inbuff[:-4]
+
+                # update our state to know we just got the headers
+                self.state = SCGIConnection.HEADER
+
 
         # the inbuff contains the headers
         if self.state == SCGIConnection.HEADER:
+            log.debug("HTTPHandler: HEADER")
 
             # parse the headers
+            log.debug('HTTPHandler: creating headers\n%s' % self.inbuff)
             fp = StringIO.StringIO(self.inbuff)
             self.inbuff = ""
-            header = mimetools.Message(fp)
+            headers = mimetools.Message(fp).dict
 
             # add the headers to the environ
             for k,v in headers.iteritems():
-                self.environ[k] = v
+                self.environ[k.upper()] = v
 
-            if not self.environ.get("CONTENT_LENGTH", "bad").isdigit():
-                self.close()
-                return
-
-            self.reqlen = int(self.environ["CONTENT_LENGTH"])
-            if self.reqlen > self.maxpostsize:
-                self.close()
-                return
+            log.debug('HTTPHandler: headers: \n%s' % headers)
 
             # tell kick the rest of the processing to the body handler
             self.state = SCGIConnection.BODY
 
         # the rest of the data is body data
         if self.state == SCGIConnection.BODY:
-            # read data off the line
-            data = self.recv(self.blocksize)
-            self.inbuff += data
+            log.debug("HTTPHandler: BODY")
 
-            if len(self.inbuff) >= self.reqlen:
-                self.body.write(self.inbuff[:self.reqlen])
+            # read data off the line
+            if not data:
+                log.debug('HTTPHandler: reading data')
+                data = self.recv(self.blocksize)
+                self.inbuff += data
+
+            # the request could have body data or it could not
+            # in the case that it has a content len we are going
+            # to keep collecting until we hit that
+            content_len = int(self.environ.get("CONTENT_LENGTH",0))
+
+            if not content_len or len(self.inbuff) >= content_len:
+                log.debug('HTTPHandler: Have all body data')
+
+                self.body.write(self.inbuff)
                 self.body.seek(0)
                 self.inbuff = ""
-                self.reqlen = 0
                 self.environ.update(self._wsgi_headers())
                 if self.environ.get("HTTPS", "no").lower() in ('yes', 'y', '1'):
                     self.environ["wsgi.url_scheme"] = "https"
@@ -146,7 +164,5 @@ class HTTPHandler(SCGIConnection):
                                 self.environ, self.start_response))
                 self.state = SCGIConnection.REQ
             else:
-                self.body.write(self.inbuff)
-                self.reqlen -= len(self.inbuff)
-                self.inbuff = ""
+                log.debug('HTTPHandler: collecting body data')
 
