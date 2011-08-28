@@ -31,4 +31,4 @@ class HTTPServer(asyncore.dispatcher):
         conn, addr = self.accept()
 
         # send on to the handler
-        SuperHandler(self.application)
+        HTTPHandler(self, conn, addr, self.application)
