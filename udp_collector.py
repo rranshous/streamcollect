@@ -4,14 +4,15 @@ import StringIO
 import logging
 from bigsignal import Eventable
 
-# setup logging
-logging.basicConfig(level=logging.DEBUG)
-log = logging
+log = logging.getLogger(__name__)
+log.setLevel(logging.DEBUG)
 
 READ_SIZE = 1024
 
 
 class UDPCollector(asyncore.dispatcher,Eventable):
+
+    blocksize = 1024
 
     def __init__(self,port):
         asyncore.dispatcher.__init__(self)
@@ -21,26 +22,33 @@ class UDPCollector(asyncore.dispatcher,Eventable):
         self.create_socket(socket.AF_INET, socket.SOCK_DGRAM)
 
         # listen on defined port
+        log.info('UDPCollector: binding to %s' % port)
         self.bind(('', port))
+        self.port = port
 
     def handle_accept(self):
         # setup a transporter to collect the data we receive
         log.debug('Collector: Accepting connection')
         conn, addr = self.accept()
-        log.info('Collector [%s]: Handling accept' % addr)
+        log.info('Collector [%s]: Handling accept' % self.port)
         Transporter(self, conn, addr)
 
-    def close(self):
+    def handle_close(self):
         # let everyone know we're closing and than close
+        log.info("UDPCollector [%s]: closing" % self.port)
         self.fire('close')
         self.close()
 
-    def handle_write(self, data):
+    def writable(self):
+        return False
+
+    def handle_read(self):
         """
         fire's receive event with data attached
         """
-
         # fire off our data
+        data = self.recv(self.blocksize)
+        log.debug("UDPCollector [%s]: received %s" % (self.port,len(data)))
         self.fire('receive',data)
 
 

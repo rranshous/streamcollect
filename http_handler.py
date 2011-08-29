@@ -25,14 +25,18 @@ class HTTPHandler(SCGIConnection):
             'feed_from_udp':self.feed_from_udp
         })
 
+        log.info('HTTPHandler: Initializing')
+
     def feed_from_udp(self,port):
         """
         once the WSGI app finished continue sending data to the client
         from a udp collector
         """
 
+        log.info("HTTPHandler: Hooking into UDP stream %s" % port)
+
         # get the collector
-        self.collector = man.get_or_create_collector(port)
+        self.collector = self.server.manager.get_or_create_collector(port)
 
         # we want all the data the collector's got
         self.collector.on('receive',self.handle_collector_data)
@@ -41,11 +45,17 @@ class HTTPHandler(SCGIConnection):
         """
         add the data to our write buffer
         """
-        self.outbuff += data
+        log.debug('HTTPHandler: handling collector data: %s' % len(data))
+        if self.outheaders: # wait for headers
+            self.outbuff += data
+            log.debug('HTTPHandler: outbuff size: %s' % len(self.outbuff))
+        else:
+            log.debug("HTTPHandler: headers not out")
 
     def handle_close(self):
         # call our rent which will close the connection
         SCGIConnection.handle_close(self)
+        log.info("HTTPHandler: Closing")
 
         self.clean_up()
 
@@ -56,17 +66,21 @@ class HTTPHandler(SCGIConnection):
 
         # unregister ourself from collector
         if self.collector:
-            self.collector.un('receive',self.push)
+            self.collector.un('receive',self.handle_collector_data)
 
     def writable(self):
         # if we are on a collector but don't have anything to go
         # out than return false. This way the SCGIConnector won't
         # think we are done and close the socket
+
+        return SCGIConnection.writable(self)
+
         writable = False
         if self.collector and not self.outbuff:
-            log.debug('collector but no outbuff')
+            log.warning('collector but no outbuff')
             writable = False
-        writable = SCGIConnection.writable(self)
+        else:
+            writable = SCGIConnection.writable(self)
         log.debug('checking writable: %s' % writable)
         return writable
 
@@ -116,11 +130,27 @@ class HTTPHandler(SCGIConnection):
         if self.state == SCGIConnection.HEADER:
             log.debug("HTTPHandler: HEADER")
 
+            # get the status line
+            status = self.inbuff[:self.inbuff.find('\r\n')]
+            self.inbuff = self.inbuff[len(status):]
+
+            # parse the status line for the path_info, script_name, request_method
+            method, path, prot = status.split()
+
             # parse the headers
-            log.debug('HTTPHandler: creating headers\n%s' % self.inbuff)
             fp = StringIO.StringIO(self.inbuff)
             self.inbuff = ""
-            headers = mimetools.Message(fp).dict
+            request_info = mimetools.Message(fp)
+            headers = request_info.dict
+
+            # update the environ w/ the things from the status
+            self.environ.update({
+                'SCRIPT_NAME': '/',
+                'REQUEST_METHOD': method.upper(),
+                'PATH_INFO': path.split('/')[-1].split('?')[0],
+                'SERVER_PROTOCOL': prot.upper(),
+                'QUERY_STRING': path.split('?')[-1] if '?' in path else ''
+            })
 
             # add the headers to the environ
             for k,v in headers.iteritems():
@@ -166,3 +196,31 @@ class HTTPHandler(SCGIConnection):
             else:
                 log.debug('HTTPHandler: collecting body data')
 
+
+    def handle_write(self):
+        """C{asyncore} interface"""
+        assert self.state >= SCGIConnection.REQ
+        if len(self.outbuff) < self.blocksize:
+            self._try_send_headers()
+            for data in self.wsgihandler:
+                assert isinstance(data, str)
+                if data:
+                    self.outbuff += data
+                    break
+            print 'got WSGI data'
+            # don't want to close on the colector
+            if not self.collector and len(self.outbuff) == 0:
+                if hasattr(self.wsgihandler, "close"):
+                    self.wsgihandler.close()
+                print 'closing'
+                self.close()
+                return
+        try:
+            print 'sending'
+            sentbytes = self.send(self.outbuff[:self.blocksize])
+        except socket.error:
+            if hasattr(self.wsgihandler, "close"):
+                self.wsgihandler.close()
+            self.close()
+            return
+        self.outbuff = self.outbuff[sentbytes:]

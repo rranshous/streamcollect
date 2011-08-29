@@ -1,6 +1,7 @@
 
 
 def application(environ, start_response):
-    print 'app ran'
-    start_response("200 OK",[('Content-type','text/html')])
-    return "test!"
+    print 'app ran: %s' % (environ)
+    start_response("200 OK",[('Content-type','octet-stream/ogg')])
+    environ.get('feed_from_udp')(8089)
+    return ""

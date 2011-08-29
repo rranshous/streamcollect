@@ -160,12 +160,15 @@ class SCGIConnection(asyncore.dispatcher):
                 if data:
                     self.outbuff += data
                     break
+            print 'got WSGI data'
             if len(self.outbuff) == 0:
                 if hasattr(self.wsgihandler, "close"):
                     self.wsgihandler.close()
+                print 'closing'
                 self.close()
                 return
         try:
+            print 'sending'
             sentbytes = self.send(self.outbuff[:self.blocksize])
         except socket.error:
             if hasattr(self.wsgihandler, "close"):
