@@ -12,6 +12,8 @@ class HTTPHandler(SCGIConnection):
     wsgi_multiprocess = True
     wsgi_run_once = True
 
+    blocksize = 1
+
     def __init__(self,*args,**kwargs):
         # respect the rents
         SCGIConnection.__init__(self,*args,**kwargs)
@@ -73,17 +75,26 @@ class HTTPHandler(SCGIConnection):
         # out than return false. This way the SCGIConnector won't
         # think we are done and close the socket
 
-        return SCGIConnection.writable(self)
+        #return SCGIConnection.writable(self)
 
-        writable = False
-        if self.collector and not self.outbuff:
-            log.warning('collector but no outbuff')
-            writable = False
-        else:
-            writable = SCGIConnection.writable(self)
-        log.debug('checking writable: %s' % writable)
-        return writable
+        writable = SCGIConnection.writable(self)
+        log.debug('SCGIconn writable: %s' % writable)
 
+        # we've got some data, we're good to go
+        if writable and self.outbuff:
+            log.debug('outbuff, writable')
+            return True
+
+        # we haven't sent the headers yet, but we can
+        if writable and self.outheaders != True:
+            log.debug('outheaders, writable')
+            return True
+
+        if writable and self.wsgihandler and self.outheaders != True:
+            log.debug('wsgihandler, writable')
+            return True
+
+        return False
 
     def handle_read(self):
         """C{asyncore} interface"""
@@ -201,13 +212,13 @@ class HTTPHandler(SCGIConnection):
         """C{asyncore} interface"""
         assert self.state >= SCGIConnection.REQ
         if len(self.outbuff) < self.blocksize:
+            print 'got WSGI data'
             self._try_send_headers()
             for data in self.wsgihandler:
                 assert isinstance(data, str)
                 if data:
                     self.outbuff += data
                     break
-            print 'got WSGI data'
             # don't want to close on the colector
             if not self.collector and len(self.outbuff) == 0:
                 if hasattr(self.wsgihandler, "close"):

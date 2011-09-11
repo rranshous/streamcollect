@@ -20,7 +20,8 @@ class Manager(object):
         }
 
         # the http server waiting for clients to stream to
-        self.http_server = HTTPServer(application, http_port, config=base_env, manager=self)
+        self.http_server = HTTPServer(application, http_port,
+                                      config=base_env, manager=self)
 
 
     def get_or_create_collector(self,port):
